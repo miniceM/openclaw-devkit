@@ -43,29 +43,36 @@ get_latest_version() {
 download_source() {
   local version="$1"
   local url="https://github.com/${REPO}/archive/refs/tags/${version}.tar.gz"
-  local tmp_file="/tmp/openclaw-${version}.tar.gz"
+
+  TMP_FILE=$(mktemp -t "openclaw-${version}.tar.gz.XXXXXX") || error "无法创建临时文件"
 
   info "下载 OpenClaw ${version} 源码..."
-  if ! curl -fsSL "$url" -o "$tmp_file"; then
+  if ! curl -fsSL "$url" -o "$TMP_FILE"; then
     error "下载失败: $url"
   fi
 
-  echo "$tmp_file"
+  echo "$TMP_FILE"
 }
 
 # 停止运行中的容器
 stop_containers() {
   if docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | grep -q .; then
     info "停止运行中的容器..."
-    docker compose -f "${SCRIPT_DIR}/docker-compose.dev.yml" down 2>/dev/null || true
+    if ! docker compose -f "${SCRIPT_DIR}/docker-compose.dev.yml" down; then
+      error "停止容器失败，请手动运行: docker compose -f ${SCRIPT_DIR}/docker-compose.dev.yml down"
+    fi
   fi
 }
 
 # 清理旧源码
 clean_old_source() {
   if [[ -d "${SRC_DIR}" ]]; then
+    # 验证容器已停止
+    if docker ps --filter "name=openclaw" --format "{{.Names}}" 2>/dev/null | grep -q .; then
+      error "容器仍在运行，无法清理源码"
+    fi
     info "清理旧版本源码..."
-    rm -rf "${SRC_DIR}"
+    rm -rf "${SRC_DIR}" || error "清理源码目录失败"
   fi
 }
 
@@ -73,23 +80,30 @@ clean_old_source() {
 extract_source() {
   local tar_file="$1"
   local version="$2"
-  local tmp_dir="/tmp/openclaw-extract-$$"
+
+  TMP_DIR=$(mktemp -d -t "openclaw-extract.XXXXXX") || error "无法创建临时目录"
 
   info "解压源码..."
-  rm -rf "$tmp_dir"
-  mkdir -p "$tmp_dir"
-  tar -xzf "$tar_file" -C "$tmp_dir"
+  if ! tar -xzf "$tar_file" -C "$TMP_DIR"; then
+    error "解压失败，可能是下载文件损坏"
+  fi
 
   # 找到解压后的目录名 (通常是 openclaw-版本号)
   local extracted_dir
-  extracted_dir=$(ls -1 "$tmp_dir" | head -1)
+  extracted_dir=$(ls -1 "$TMP_DIR" | head -1)
+
+  if [[ -z "$extracted_dir" ]]; then
+    error "解压后未找到源码目录"
+  fi
 
   info "安装新版本源码..."
-  mv "${tmp_dir}/${extracted_dir}" "${SRC_DIR}"
+  mv "${TMP_DIR}/${extracted_dir}" "${SRC_DIR}"
 
-  # 清理临时文件
+  # 清理临时文件 (trap 也会处理，但主动清理更好)
   rm -f "$tar_file"
-  rm -rf "$tmp_dir"
+  rm -rf "$TMP_DIR"
+  TMP_FILE=""
+  TMP_DIR=""
 }
 
 # 主流程
@@ -99,9 +113,14 @@ main() {
 
   # 检查当前版本
   if [[ -f "${SRC_DIR}/package.json" ]]; then
-    current_version=$(jq -r '.version' "${SRC_DIR}/package.json" 2>/dev/null || echo "unknown")
-    current_version="v${current_version}"
-    info "当前版本: ${current_version}"
+    local raw_version
+    raw_version=$(jq -r '.version' "${SRC_DIR}/package.json" 2>/dev/null || echo "")
+    if [[ -n "$raw_version" && "$raw_version" != "null" ]]; then
+      current_version="v${raw_version}"
+      info "当前版本: ${current_version}"
+    else
+      warn "无法读取当前版本"
+    fi
   else
     warn "源码目录不存在"
   fi
@@ -112,7 +131,7 @@ main() {
   info "最新版本: ${latest_version}"
 
   # 检查是否需要更新
-  if [[ "$current_version" == "$latest_version" ]]; then
+  if [[ -n "$current_version" && "$current_version" == "$latest_version" ]]; then
     info "已是最新版本，无需更新"
     exit 0
   fi
