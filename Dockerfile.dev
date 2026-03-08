@@ -110,6 +110,37 @@ ENV GOPATH=/home/node/go
 ENV PATH="${GOPATH}/bin:/usr/local/go/bin:${PATH}"
 
 # ============================================================
+# Go 开发工具链 (golangci-lint, gopls, dlv, etc.)
+# ============================================================
+# golangci-lint: 综合性 linter (https://golangci-lint.run/)
+ARG GOLANGCI_LINT_VERSION=1.64.8
+RUN ARCH=$(dpkg --print-architecture) && \
+  curl -fsSL "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-${ARCH}.tar.gz" | \
+  tar -xz -C /tmp && \
+  mv /tmp/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-${ARCH}/golangci-lint /usr/local/bin/ && \
+  rm -rf /tmp/golangci-lint-*
+
+# Go 工具安装 (需要 GOPATH 已设置)
+ARG GO_TOOLS="\
+  golang.org/x/tools/gopls@latest \
+  github.com/go-delve/delve/cmd/dlv@latest \
+  honnef.co/go/tools/cmd/staticcheck@latest \
+  github.com/securego/gosec/v2/cmd/gosec@latest \
+  golang.org/x/tools/cmd/goimports@latest \
+  github.com/air-verse/air@latest \
+  github.com/google/mock/mockgen@latest \
+  github.com/google/wire/cmd/wire@latest \
+  github.com/onsi/ginkgo/v2/ginkgo@latest"
+
+RUN mkdir -p "${GOPATH}/bin" && \
+  for tool in ${GO_TOOLS}; do \
+  echo "Installing $tool..." && \
+  go install "$tool"; \
+  done && \
+  # 清理 Go 模块缓存减小镜像体积
+  go clean -modcache
+
+# ============================================================
 # 第三阶段：安装 OpenClaw 核心组件
 # ============================================================
 
