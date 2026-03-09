@@ -38,6 +38,7 @@ node_modules/
 
 # OpenClaw source (git submodule)
 .openclaw_src/
+openclaw*.json*
 
 # loki
 .loki/
