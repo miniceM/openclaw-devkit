@@ -4,17 +4,26 @@
 # 用法: make <target>
 # 帮助: make help
 #
-# 相关文件:
-#   - docker-compose.dev.yml  Docker Compose 配置
-#   - Dockerfile.dev          开发环境镜像
-#   - docker-dev-setup.sh     初始化脚本
+# 镜像版本:
+#   - openclaw:dev     标准版 (默认)
+#   - openclaw:pro     Office 办公版
+#   - openclaw:dev-java Java 增强版
+#
+# 示例:
+#   make install              # 安装标准版
+#   make install java        # 安装 Java 版
+#   make install office      # 安装 Office 版
+#   make build              # 构建标准版镜像
+#   make rebuild office     # 构建并重启 Office 版
 # ==============================================================================
 
-.PHONY: help install up down logs shell status \
-        build build-java rebuild clean clean-volumes \
+.PHONY: help install up down restart logs shell status \
+        build build-java build-office rebuild rebuild-java rebuild-office \
+        clean clean-volumes \
         exec cli pairing gateway-health test-proxy verify \
         backup-config restore-config \
-        update check-deps
+        update check-deps \
+        java office
 
 # 默认目标
 .DEFAULT_GOAL := help
@@ -22,35 +31,51 @@
 # 环境配置
 -include .env
 
-# 变量
+# ============================================================
+# 变量定义
+# ============================================================
+
 COMPOSE_FILE := docker-compose.dev.yml
 SETUP_SCRIPT := docker-dev-setup.sh
+GATEWAY_PORT := 18789
+OPENCLAW_BIN := openclaw
+
+# 镜像配置
 IMAGE_NAME ?= $(OPENCLAW_IMAGE)
 ifeq ($(IMAGE_NAME),)
 IMAGE_NAME := openclaw:dev
 endif
-GATEWAY_PORT := 18789
-OPENCLAW_BIN := openclaw
+
+# Docker 构建公共参数
+DOCKER_BUILD_ARGS := --build-arg HTTP_PROXY=$(HTTP_PROXY) --build-arg HTTPS_PROXY=$(HTTPS_PROXY)
+
+# 镜像定义
+IMAGES := dev pro dev-java
+IMAGE_PROCS := dev=openclaw:dev,default office=openclaw:pro java=openclaw:dev-java
 
 # ============================================================
 # 帮助
 # ============================================================
 
 help: ## 显示帮助信息
-	@echo "╔════════════════════════════════════════════════════════════╗"
-	@echo "║       OpenClaw Docker 开发环境 - 运维工具套件              ║"
-	@echo "╚════════════════════════════════════════════════════════════╝"
+	@echo "╔════════════════════════════════════════════════════════════════════╗"
+	@echo "║              OpenClaw Docker 开发环境 - 运维工具套件              ║"
+	@echo "╚════════════════════════════════════════════════════════════════════╝"
 	@echo ""
-	@echo "用法: make <target>"
+	@echo "用法: make <target> [version]"
+	@echo ""
+	@echo "版本选择: dev (标准版), office (办公版), java (Java版)"
+	@echo "  例如: make install office   # 安装 Office 版"
+	@echo "        make build java      # 构建 Java 版"
 	@echo ""
 	@echo "┌─ 生命周期管理 ─────────────────────────────────────────────┐"
-	@grep -h -E '^(install|up|down|status):.*## .*$$' $(MAKEFILE_LIST) | \
+	@grep -h -E '^(install|up|down|restart|status):.*## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "│  \033[36m%-18s\033[0m %s │\n", $$1, $$2}'
 	@echo "├─ 构建与清理 ───────────────────────────────────────────────┤"
-	@grep -h -E '^(build|build-java|build-office|rebuild|rebuild-java|rebuild-office|clean):.*## .*$$' $(MAKEFILE_LIST) | \
+	@grep -h -E '^(build|rebuild|clean):.*## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "│  \033[36m%-18s\033[0m %s │\n", $$1, $$2}'
 	@echo "├─ 调试与诊断 ───────────────────────────────────────────────┤"
-	@grep -h -E '^(logs|shell|exec|cli|pairing|gateway-health|test-proxy):.*## .*$$' $(MAKEFILE_LIST) | \
+	@grep -h -E '^(logs|shell|exec|cli|gateway-health|test-proxy):.*## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "│  \033[36m%-18s\033[0m %s │\n", $$1, $$2}'
 	@echo "├─ 备份与恢复 ───────────────────────────────────────────────┤"
 	@grep -h -E '^(backup-config|restore-config):.*## .*$$' $(MAKEFILE_LIST) | \
@@ -60,33 +85,34 @@ help: ## 显示帮助信息
 		awk 'BEGIN {FS = ":.*?## "}; {printf "│  \033[36m%-18s\033[0m %s │\n", $$1, $$2}'
 	@echo "└─────────────────────────────────────────────────────────────┘"
 	@echo ""
-	@echo "示例:"
-	@echo "  make install     # 首次安装"
-	@echo "  make up          # 启动服务"
-	@echo "  make logs        # 查看日志"
-	@echo "  make shell       # 进入容器"
+	@echo "快速开始:"
+	@echo "  make install           # 首次安装 (标准版)"
+	@echo "  make up               # 启动服务"
+	@echo "  make logs             # 查看日志"
+	@echo "  make shell            # 进入容器"
+
+# ============================================================
+# 版本选择 (伪目标)
+# ============================================================
+
+java: ## 内部: 选择 Java 版
+	@:
+
+office: ## 内部: 选择 Office 版
+	@:
+
+dev: ## 内部: 选择标准版
+	@:
 
 # ============================================================
 # 生命周期管理
 # ============================================================
 
-install: ## 首次安装/初始化环境 (支持: make install java)
+install: ## 首次安装/初始化环境
 	@echo "==> 初始化 OpenClaw 开发环境..."
 	@chmod +x $(SETUP_SCRIPT)
-	@if [ "$(filter java,$(MAKECMDGOALS))" = "java" ]; then \
-		OPENCLAW_IMAGE=openclaw:dev-java ./$(SETUP_SCRIPT); \
-	elif [ "$(filter office,$(MAKECMDGOALS))" = "office" ]; then \
-		OPENCLAW_IMAGE=openclaw:pro ./$(SETUP_SCRIPT); \
-	else \
-		./$(SETUP_SCRIPT); \
-	fi
-
-# 伪目标，用于支持 make install java 这种写法
-java:
-	@:
-
-office:
-	@:
+	@$(call select_image,$(MAKECMDGOALS))
+	@./$(SETUP_SCRIPT)
 
 up: ## 启动服务
 	@echo "==> 启动 OpenClaw 服务..."
@@ -100,6 +126,10 @@ down: ## 停止服务
 	@echo "==> 停止 OpenClaw 服务..."
 	docker compose -f $(COMPOSE_FILE) down
 	@echo "✓ 服务已停止"
+
+restart: ## 重启服务
+	$(MAKE) down
+	$(MAKE) up
 
 status: ## 查看服务状态
 	@echo "╔════════════════════════════════════════════════════════════╗"
@@ -123,50 +153,23 @@ status: ## 查看服务状态
 # 构建与清理
 # ============================================================
 
-build: ## 构建标准版镜像 (Dockerfile.dev)
-	@echo "==> 构建 $(IMAGE_NAME) (标准版)..."
-	docker build \
-		-t $(IMAGE_NAME) \
-		-f Dockerfile.dev \
-		--build-arg HTTP_PROXY=$(HTTP_PROXY) \
-		--build-arg HTTPS_PROXY=$(HTTPS_PROXY) \
-		.openclaw_src
+build: ## 构建镜像 (用法: make build [dev|office|java])
+	@$(call do_build,dev,$(MAKECMDGOALS))
 
-build-java: ## 构建 Java 增强版镜像 (Dockerfile.java)
-	@echo "==> 构建 openclaw:dev-java (Java 增强版)..."
-	docker build \
-		-t openclaw:dev-java \
-		-f Dockerfile.java \
-		--build-arg HTTP_PROXY=$(HTTP_PROXY) \
-		--build-arg HTTPS_PROXY=$(HTTPS_PROXY) \
-		.openclaw_src
+build-java: ## 构建 Java 版镜像
+	@$(call do_build,java,$(MAKECMDGOALS))
 
-build-office: ## 构建 Office 办公/自动化版镜像 (Dockerfile.office)
-	@echo "==> 构建 openclaw:pro (Office 增强版)..."
-	docker build \
-		-t openclaw:pro \
-		-f Dockerfile.office \
-		--build-arg HTTP_PROXY=$(HTTP_PROXY) \
-		--build-arg HTTPS_PROXY=$(HTTPS_PROXY) \
-		.openclaw_src
+build-office: ## 构建 Office 版镜像
+	@$(call do_build,office,$(MAKECMDGOALS))
 
-rebuild: ## 重建镜像并重启服务 (标准版)
-	@echo "==> 重建镜像并重启服务 (标准版)..."
-	$(MAKE) build
-	$(MAKE) down
-	$(MAKE) up
+rebuild: ## 重建镜像并重启服务
+	@$(call do_rebuild,dev,$(MAKECMDGOALS))
 
-rebuild-java: ## 重建镜像并重启服务 (Java 增强版)
-	@echo "==> 重建镜像并重启服务 (Java 增强版)..."
-	$(MAKE) build-java
-	$(MAKE) down
-	OPENCLAW_IMAGE=openclaw:dev-java $(MAKE) up
+rebuild-java: ## 重建并重启 (Java 版)
+	@$(call do_rebuild,java,$(MAKECMDGOALS))
 
-rebuild-office: ## 重建镜像并重启服务 (Office 增强版)
-	@echo "==> 重建镜像并重启服务 (Office 增强版)..."
-	$(MAKE) build-office
-	$(MAKE) down
-	OPENCLAW_IMAGE=openclaw:pro $(MAKE) up
+rebuild-office: ## 重建并重启 (Office 版)
+	@$(call do_rebuild,office,$(MAKECMDGOALS))
 
 clean: ## 清理容器和悬空镜像
 	@echo "==> 清理 Docker 资源..."
@@ -197,27 +200,27 @@ logs-all: ## 查看所有容器日志
 shell: ## 进入 Gateway 容器
 	docker compose -f $(COMPOSE_FILE) exec openclaw-gateway bash
 
-verify: ## 验证镜像工具版本 (2025 最佳实践检查)
-	@echo "==> 验证标准版镜像: $(IMAGE_NAME)"
-	docker run --rm $(IMAGE_NAME) node -v | grep -q "v22" && echo "✓ Node.js v22 (LTS) OK" || echo "✗ Node.js version mismatch"
-	docker run --rm $(IMAGE_NAME) go version | grep -q "1.26" && echo "✓ Go v1.26 OK" || echo "✗ Go version mismatch"
+verify: ## 验证镜像工具版本
+	@echo "==> 验证镜像: $(IMAGE_NAME)"
+	@docker run --rm $(IMAGE_NAME) node -v 2>/dev/null | grep -q "v22" && echo "✓ Node.js v22 OK" || echo "✗ Node.js version mismatch"
+	@docker run --rm $(IMAGE_NAME) go version 2>/dev/null | grep -q "1.2" && echo "✓ Go v1.2x OK" || echo "⚠ Go not installed (Office edition?)"
 	@if docker image inspect openclaw:dev-java >/dev/null 2>&1; then \
-		echo "==> 验证 Java 增强版镜像: openclaw:dev-java"; \
-		docker run --rm openclaw:dev-java java -version 2>&1 | grep -q "25" && echo "✓ JDK 25 (LTS) OK" || echo "✗ JDK version mismatch"; \
+		echo "==> 验证 Java 版: openclaw:dev-java"; \
+		docker run --rm openclaw:dev-java java -version 2>&1 | grep -q "25" && echo "✓ JDK 25 OK" || echo "⚠ JDK version"; \
 	fi
 
 exec: ## 执行命令 (用法: make exec CMD="openclaw --help")
 	docker compose -f $(COMPOSE_FILE) exec openclaw-gateway $(CMD)
 
-cli: ## 执行 OpenClaw CLI 命令 (用法: make cli CMD="config list")
+cli: ## 执行 OpenClaw CLI (用法: make cli CMD="config list")
 	docker compose -f $(COMPOSE_FILE) exec openclaw-gateway $(OPENCLAW_BIN) $(CMD)
 
-pairing: ## 频道配对指令 (用法: make pairing CMD="list slack")
+pairing: ## 频道配对 (用法: make pairing CMD="list slack")
 	docker compose -f $(COMPOSE_FILE) exec openclaw-gateway $(OPENCLAW_BIN) pairing $(CMD)
 
 gateway-health: ## 检查 Gateway 健康状态
 	@echo "==> 检查 Gateway 健康状态..."
-	@curl -s http://127.0.0.1:$(GATEWAY_PORT)/ | head -5 && echo "... ✓ Web UI 正常" || echo "✗ Web UI 不可用"
+	@curl -s http://127.0.0.1:$(GATEWAY_PORT)/ >/dev/null 2>&1 && echo "✓ Web UI 正常" || echo "✗ Web UI 不可用"
 	@docker compose -f $(COMPOSE_FILE) exec -T openclaw-gateway node -e \
 		"fetch('http://127.0.0.1:$(GATEWAY_PORT)/healthz').then(r => { console.log(r.ok ? '✓ Health check passed' : '✗ Health check failed'); process.exit(r.ok ? 0 : 1); }).catch(e => { console.log('✗', e.message); process.exit(1); })"
 
@@ -226,7 +229,7 @@ test-proxy: ## 测试代理连接
 	@echo "┌─ HTTP 代理 (7897) ─────────────────────────────────────────┐"
 	@docker compose -f $(COMPOSE_FILE) exec -T openclaw-gateway curl -s --proxy http://host.docker.internal:7897 --connect-timeout 5 https://www.google.com > /dev/null 2>&1 && echo "│  ✓ Google 可达" || echo "│  ✗ Google 不可达"
 	@echo "├─ Claude API 代理 (15721) ──────────────────────────────────┤"
-	@docker compose -f $(COMPOSE_FILE) exec -T openclaw-gateway curl -s --proxy http://host.docker.internal:15721 --connect-timeout 5 https://api.anthropic.com/v1/messages -X POST -H "x-api-key: test" -H "content-type: application/json" -d '{"model":"claude-3-opus-20240229","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' 2>&1 | head -1 | grep -q "invalid_api_key" && echo "│  ✓ Claude API 代理工作正常" || echo "│  ⚠ Claude API 代理未响应或配置错误"
+	@docker compose -f $(COMPOSE_FILE) exec -T openclaw-gateway curl -s --proxy http://host.docker.internal:15721 --connect-timeout 5 https://api.anthropic.com/v1/messages -X POST -H "x-api-key: test" -H "content-type: application/json" -d '{"model":"claude-3-opus-20240229","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}' 2>&1 | head -1 | grep -q "invalid_api_key" && echo "│  ✓ Claude API 代理工作正常" || echo "│  ⚠ Claude API 代理未响应"
 	@echo "└─────────────────────────────────────────────────────────────┘"
 
 # ============================================================
@@ -244,16 +247,16 @@ backup-config: ## 备份配置文件
 		tar -czf $(BACKUP_DIR)/main-agent-$$TIM.tar.gz \
 			-C $(HOME)/.openclaw/agents/main/agent . 2>/dev/null && \
 			echo "│  ✓ main: main-agent-$$TIM.tar.gz" || \
-			echo "│  ✗ main: 无配置"; \
+			echo "│  ⚠ main: 无配置"; \
 		echo "│  备份 codex agent..."; \
 		tar -czf $(BACKUP_DIR)/codex-agent-$$TIM.tar.gz \
 			-C $(HOME)/.openclaw/agents/codex/agent . 2>/dev/null && \
 			echo "│  ✓ codex: codex-agent-$$TIM.tar.gz" || \
-			echo "│  ✗ codex: 无配置"; \
+			echo "│  ⚠ codex: 无配置"; \
 		echo "├─ 备份主配置 ─────────────────────────────────────────────────┤"; \
 		cp $(HOME)/.openclaw/openclaw.json $(BACKUP_DIR)/openclaw-$$TIM.json 2>/dev/null && \
 			echo "│  ✓ openclaw.json -> openclaw-$$TIM.json" || \
-			echo "│  ✗ openclaw.json 不存在"; \
+			echo "│  ⚠ openclaw.json 不存在"; \
 		echo "└─────────────────────────────────────────────────────────────┘"; \
 		echo ""; \
 		echo "✓ 备份完成: $(BACKUP_DIR)"; \
@@ -261,7 +264,7 @@ backup-config: ## 备份配置文件
 		echo "可用备份:"; \
 		ls -lht $(BACKUP_DIR) | head -10
 
-restore-config: ## 恢复配置文件 (用法: make restore-config FILE=xxx.tar.gz)
+restore-config: ## 恢复配置 (用法: make restore-config FILE=xxx)
 ifndef FILE
 	@echo "用法: make restore-config FILE=<备份文件名>"
 	@echo ""
@@ -320,3 +323,35 @@ check-deps: ## 检查依赖状态
 	@nc -z host.docker.internal 7897 2>/dev/null && echo "│  ✓ HTTP 代理 (7897) 可达" || echo "│  ✗ HTTP 代理 (7897) 不可达"
 	@nc -z host.docker.internal 15721 2>/dev/null && echo "│  ✓ Claude 代理 (15721) 可达" || echo "│  ✗ Claude 代理 (15721) 不可达"
 	@echo "└─────────────────────────────────────────────────────────────┘"
+
+# ============================================================
+# 内部函数
+# ============================================================
+
+# 选择镜像版本
+define select_image
+$(if $(filter office,$(1)),\
+	$(eval IMAGE_NAME := openclaw:pro),\
+$(if $(filter java,$(1)),\
+	$(eval IMAGE_NAME := openclaw:dev-java),\
+	$(eval IMAGE_NAME := openclaw:dev)))
+endef
+
+# 构建镜像
+define do_build
+$(call select_image,$(2))
+@echo "==> 构建 $(IMAGE_NAME) ($(1) 版)..."
+docker build \
+	-t $(IMAGE_NAME) \
+	-f Dockerfile.$(1) \
+	$(DOCKER_BUILD_ARGS) \
+	.openclaw_src
+endef
+
+# 重建并重启
+define do_rebuild
+$(call do_build,$(1),$(2))
+$(MAKE) down
+$(call select_image,$(2))
+OPENCLAW_IMAGE=$(IMAGE_NAME) $(MAKE) up
+endef
