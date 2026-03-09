@@ -174,7 +174,7 @@ install: ## 首次安装/初始化环境
 	@chmod +x $(SETUP_SCRIPT)
 	@$(call select_image,$(MAKECMDGOALS))
 	@echo "==> 使用镜像: $(IMAGE_NAME)"
-	@./$(SETUP_SCRIPT)
+	@OPENCLAW_IMAGE=$(IMAGE_NAME) ./$(SETUP_SCRIPT)
 
 up: ## 启动服务
 	@docker compose -f $(COMPOSE_FILE) up -d
