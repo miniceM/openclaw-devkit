@@ -80,19 +80,19 @@ make test-proxy
 
 ## 📊 Feature Comparison
 
-| Feature         |    Standard Edition    | Java Enhanced Edition |   Office (Pro Edition)   |
-| :-------------- | :--------------------: | :-------------------: | :----------------------: |
-| Target Audience |      General Devs      |    Java Enterprise    | Automation & Copywriting |
-| Environment     |    Node, Go, Python    |     Same + JDK 25     |     Node 22, Python      |
-| AI Assistants   |       ✅ Included       |      ✅ Included       |            ❌             |
-| Automation      |       Playwright       |      Playwright       |  Playwright + Selenium   |
-| Doc Conversion  |     Pandoc, LaTeX      |     Pandoc, LaTeX     |    Pandoc, Full LaTeX    |
-| OCR Engines     |           ❌            |           ❌           |    Tesseract (CN/EN)     |
-| Image/PDF Tools |         Pandoc         |        Pandoc         |   ImageMagick, Poppler   |
-| Data Analysis   |           ❌            |           ❌           |      Pandas, Numpy       |
-| Build Tools     |       pnpm, Bun        |     Gradle, Maven     |        pnpm, Bun         |
-| Key Advantage   | Lightweight, AI-Native | Policy & Audit Ready  |  Zero-Config Automation  |
-| Image Size      |         ~6.4GB         |        ~8.1GB         |      ~5.8GB (Slim)       |
+| Feature              |    Standard Edition    | Java Enhanced Edition |   Office (Pro Edition)   |
+| :------------------- | :--------------------: | :-------------------: | :----------------------: |
+| Target Audience      |      General Devs      |    Java Enterprise    | Automation & Copywriting |
+| Environment          |    Node, Go, Python    |     Same + JDK 25     |     Node 22, Python      |
+| AI Coding Assistants |       ✅ Included       |      ✅ Included       |     Pi-Coding-Agent      |
+| Automation           |       Playwright       |      Playwright       |  Playwright + Selenium   |
+| Doc Conversion       |     Pandoc, LaTeX      |     Pandoc, LaTeX     |    Pandoc, Full LaTeX    |
+| OCR Engines          |           ❌            |           ❌           |    Tesseract (CN/EN)     |
+| Image/PDF Tools      |         Pandoc         |        Pandoc         |   ImageMagick, Poppler   |
+| Data Analysis        |           ❌            |           ❌           |      Pandas, Numpy       |
+| Build Tools          |       pnpm, Bun        |     Gradle, Maven     |        pnpm, Bun         |
+| Key Advantage        | Lightweight, AI-Native | Policy & Audit Ready  |  Zero-Config Automation  |
+| Image Size           |         ~6.4GB         |        ~8.1GB         |      ~5.8GB (Slim)       |
 
 ---
 
